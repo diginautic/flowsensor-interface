@@ -6,6 +6,34 @@
 #include <EEPROM.h>
 #include <DiginauticPGN127502.h>
 
+
+
+
+/** 
+ * Define DEBUG_SERIAL_ENABLE to enable debug serial. 
+ * Comment it to disable debug serial. 
+ */
+//#define DEBUG_SERIAL_ENABLE
+
+/**
+ * Define dbSerial for the output of debug messages. 
+ */
+#define dbSerial Serial
+
+#ifdef DEBUG_SERIAL_ENABLE
+#define dbSerialPrint(a)    dbSerial.print(a)
+#define dbSerialPrintln(a)  dbSerial.println(a)
+#define dbSerialBegin(a)    dbSerial.begin(a)
+#else
+#define dbSerialPrint(a)    do{}while(0)
+#define dbSerialPrintln(a)  do{}while(0)
+#define dbSerialBegin(a)    do{}while(0)
+#endif
+
+
+
+
+
 //Definitions
 #define N2K_SOURCE 108
 
@@ -75,11 +103,11 @@ void BankControl(const tN2kMsg &N2kMsg)
       }
     }
   }
-  //else
-  //{
-  //  Serial.print("Failed to parse PGN: ");
-  //  Serial.println(N2kMsg.PGN);
-  //}
+  else
+  {
+    dbSerialPrint("Failed to parse PGN: ");
+    dbSerialPrintln(N2kMsg.PGN);
+  }
 }
 
 void handleTankLevel(int PIN)
@@ -123,7 +151,7 @@ void flow_isr ()
 
 void setup(void)
 {
-  Serial.begin(115200);
+  dbSerialBegin(115200);
 
   //Flödesmätaren
   //Interruptrutin
@@ -153,8 +181,8 @@ void setup(void)
   NMEA2000.SetProductInformation("00000008",                         // Manufacturer's Model serial code
                                  108,                                // Manufacturer's product code
                                  "Diginautic Fluid Level Interface", // Manufacturer's Model ID
-                                 "0.1",                            // Manufacturer's Software version code
-                                 "0.1",                            // Manufacturer's Model version
+                                 "1.0.1",                            // Manufacturer's Software version code
+                                 "1.0.1",                            // Manufacturer's Model version
                                  1                                   //LEN
   );
   // Set device information
@@ -174,7 +202,7 @@ void setup(void)
   NMEA2000.SetMsgHandler(HandleNMEA2000Msg);
   NMEA2000.Open();
 
-  Serial.println("setup done");
+  dbSerialPrintln("setup done");
 }
 
 //************************************************************
@@ -238,11 +266,13 @@ void handleFluidLevelData(void)
   {
     if (_lCounter != 0)
     {
+      dbSerialPrint("Flöde: ");
+      dbSerialPrintln(String(_lCounter / FLOW_FACTOR,2));
       noInterrupts();
       _Flow.addCount(_lCounter);
       _lCounter = 0;
-      EEPROM.put(FLOW_EEPROM_ADR,_Flow.getLevelL());
       interrupts();
+      EEPROM.put(FLOW_EEPROM_ADR,_Flow.getLevelL());
     }
     _lLastTempTime = millis();
   }
