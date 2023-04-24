@@ -58,7 +58,7 @@ NMEA2k_FluidLevel _FluidLevel;
 #define ADDVOLUME 10.0
 
 //Tankens kapacitet
-#define TANKCAPACITY 120.0
+#define TANKCAPACITY 80.0
 
 //Flöde
 Fluid _Flow(FLOW_FACTOR);
