@@ -4,10 +4,6 @@
 #include <DiginauticN2k.h>
 #include <DiginauticFluid.h>
 #include <EEPROM.h>
-#include <DiginauticPGN127502.h>
-
-
-
 
 /** 
  * Define DEBUG_SERIAL_ENABLE to enable debug serial. 
@@ -75,7 +71,7 @@ void BankControl(const tN2kMsg &N2kMsg)
   tN2kBinaryStatus TempSwitchBoard;
   tN2kOnOff ItemStatus;
 
-  if (ParseN2kBinaryStatus2(N2kMsg, DeviceBankInstance, TempSwitchBoard) )
+  if (ParseN2kSwitchbankControl(N2kMsg, DeviceBankInstance, TempSwitchBoard) )
   {
     if (DeviceBankInstance == FLUIDBANKINSTANCE)
     {
