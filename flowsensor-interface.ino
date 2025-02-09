@@ -9,6 +9,10 @@
 #include <DiginauticN2k.h>
 #include <DiginauticFluid.h>
 #include <EEPROM.h>
+//#include <DiginauticPGN127502.h>
+
+
+
 
 
 //Definitions
@@ -19,9 +23,17 @@
 #define NUM_SWITCHES 2
 
 
-#define FLUID_LEVEL_SAMPLING_PERIOD 1000
+#define FRESH_WATER_LEVEL_SAMPLING_PERIOD 1000
+#define BLACK_WATER_LEVEL_SAMPLING_PERIOD 600000
+#define BLACK_WATER_LEVEL_WAIT_PERIOD 20000
+#define BLACK_WATER_LEVEL_PRESS_PERIOD 500
 
 #define PIN_FLOWSENSOR 8
+#define PIN_BLUE 14
+#define PIN_GREEN 15
+#define PIN_YELLOW 16
+#define PIN_RED 17
+#define PIN_BUTTON 18
 
 NMEA2k_FluidLevel _FluidLevel;
 
@@ -35,11 +47,32 @@ NMEA2k_FluidLevel _FluidLevel;
 #define ADDVOLUME 10.0
 
 //Tankens kapacitet
-#define TANKCAPACITY 80.0
+#define FRESH_TANKCAPACITY 80.0
 
-//Flöde
-Fluid _Flow(FLOW_FACTOR);
+//Tankens kapacitet
+#define WASTE_TANKCAPACITY 56.0
+
+//Fresh water tank instance
+unsigned char FreshWaterInstance = "0";
+
+//Waste water tank instance
+unsigned char BlackWaterInstance = "1";
+
+//Timingparametrar
+unsigned long _lLastFlowTime = 0;
+unsigned long _lLastBlackWaterTime = 0;
+unsigned long _lLastStartTime = 0;
+unsigned long _lLastButtonPressTime = 0;
+bool _bStarted = false;
+bool _bPressed = false;
+bool _bOverride = false;
+
+//Färskvatten
+Fluid _Flow(FLOW_FACTOR, N2kft_Water, FreshWaterInstance);
 volatile unsigned long _lCounter = 0;
+
+//Svartvatten
+Fluid _BlackWater(0, N2kft_BlackWater, BlackWaterInstance);
 
 //Switches
 tN2kBinaryStatus _Switches = 0;
@@ -64,8 +97,8 @@ void BankControl(const tN2kMsg &N2kMsg)
           switch (PIN)
           {
             case 1:
-              _Flow.setLevelL(TANKCAPACITY);
-              EEPROM.put(FLOW_EEPROM_ADR,TANKCAPACITY);
+              _Flow.setLevelL(FRESH_TANKCAPACITY);
+              EEPROM.put(FLOW_EEPROM_ADR,FRESH_TANKCAPACITY);
               handleTankLevel(PIN);
             break;
 
@@ -135,17 +168,28 @@ void setup(void)
   attachInterrupt(digitalPinToInterrupt(PIN_FLOWSENSOR), flow_isr, RISING);
   //Pull up pin
   pinMode(PIN_FLOWSENSOR, INPUT_PULLUP);
+  pinMode(PIN_BUTTON, OUTPUT);
+  pinMode(PIN_BLUE, INPUT);
+  pinMode(PIN_GREEN, INPUT);
+  pinMode(PIN_YELLOW, INPUT);
+  pinMode(PIN_RED, INPUT);
 
   //Initiera vattentanken
-  _Flow.setCapacity(TANKCAPACITY);
+  _Flow.setCapacity(FRESH_TANKCAPACITY);
+
+  //Initiera toatanken
+  _BlackWater.setCapacity(WASTE_TANKCAPACITY);
+  _bOverride = true;
+  handleBlackWaterLevelData();
+
 
   //Läs in aktuell tanknivå
   double _dTemp;
   EEPROM.get(FLOW_EEPROM_ADR, _dTemp);
   if (_dTemp <= 0 || isnan(_dTemp))
   {
-    _Flow.setLevelL(TANKCAPACITY);
-    EEPROM.put(FLOW_EEPROM_ADR,TANKCAPACITY);
+    _Flow.setLevelL(FRESH_TANKCAPACITY);
+    EEPROM.put(FLOW_EEPROM_ADR,FRESH_TANKCAPACITY);
   }
   else
   {
@@ -204,7 +248,7 @@ void SetNextUpdate(unsigned long &NextUpdate, unsigned long Period)
 
 //************************************************************
 
-//Temperaturer
+//Vattentankar
 void SendN2kFluidLevelData(void)
 {
   static unsigned long FluidLevelDataUpdated = InitNextUpdate(FluidLevelUpdatePeriod);
@@ -212,11 +256,22 @@ void SendN2kFluidLevelData(void)
 
   if (IsTimeToUpdate(FluidLevelDataUpdated))
   {
+    //Fresh water
     SetNextUpdate(FluidLevelDataUpdated, FluidLevelUpdatePeriod);
+<<<<<<< HEAD
     SetN2kFluidLevel(N2kMsg, 0, N2kft_Water, _Flow.getLevel(), _Flow.getCapacity());
+=======
+    SetN2kFluidLevel(N2kMsg, _Flow.getInstance(), _Flow.getFluidType(), _Flow.getLevel(), _Flow.getCapacity());
+    NMEA2000.SendMsg(N2kMsg);
+
+    //Black water
+    SetNextUpdate(FluidLevelDataUpdated, FluidLevelUpdatePeriod);
+    SetN2kFluidLevel(N2kMsg, _BlackWater.getInstance(), _BlackWater.getFluidType(), _BlackWater.getLevel(), _BlackWater.getCapacity());
+>>>>>>> 04fc90ba6b4d14ae83254847f9e6b806c56004ac
     NMEA2000.SendMsg(N2kMsg);
   }
 }
+
 
 //************************************************************
 
@@ -234,32 +289,92 @@ void SendN2kBinaryStatus(bool bDoOverride)
 
 
 //******************************************************************
-
-unsigned long _lLastTempTime = 0;
-
-void handleFluidLevelData(void)
+void handleFreshWaterLevelData(void)
 {
-  if (millis() - _lLastTempTime >= FLUID_LEVEL_SAMPLING_PERIOD)
+  if (millis() - _lLastFlowTime >= FRESH_WATER_LEVEL_SAMPLING_PERIOD)
   {
     if (_lCounter != 0)
     {
+<<<<<<< HEAD
+=======
+      dbSerialPrint("Flöde: ");
+      dbSerialPrintln(String(_lCounter / FLOW_FACTOR,2));
+
+>>>>>>> 04fc90ba6b4d14ae83254847f9e6b806c56004ac
       noInterrupts();
       _Flow.addCount(_lCounter);
       _lCounter = 0;
       interrupts();
       EEPROM.put(FLOW_EEPROM_ADR,_Flow.getLevelL());
     }
-    _lLastTempTime = millis();
+    _lLastFlowTime = millis();
   }
 }
+
+//******************************************************************
+void handleBlackWaterLevelData(void)
+{
+  if (millis() - _lLastBlackWaterTime >= BLACK_WATER_LEVEL_SAMPLING_PERIOD || _bOverride)
+  {
+    dbSerialPrint("Toatanken");
+
+    if (!_bStarted)
+    {
+      dbSerialPrint("Starta toamätningen");
+
+      //Flagga mätningen som aktiv
+      _bStarted = true;
+
+      //Tryck in knappen och starta timern
+      digitalWrite(PIN_BUTTON, HIGH);
+      _lLastButtonPressTime = millis();
+      _bPressed = true;
+
+      _lLastStartTime = millis();
+    }
+    //Om knappen är tryckt och tiden för ett tryck har gått ut så släpp knappen
+    else if (_bPressed && millis() - _lLastButtonPressTime >= BLACK_WATER_LEVEL_PRESS_PERIOD)
+    {
+      digitalWrite(PIN_BUTTON, LOW);
+      _lLastButtonPressTime = 0;
+      _bPressed = false;
+
+    }
+    //Om väntetiden för lamporna p ådisplayen gått ut är det dags att läsa av lamporna och stoppa kontrollen
+    else if (millis() - _lLastStartTime >= BLACK_WATER_LEVEL_WAIT_PERIOD)
+    {
+      dbSerialPrint("Läs av och lagra toamätningen");
+
+      _bStarted = false;
+
+      float fLevel = 0;
+
+      fLevel += (float)digitalRead(PIN_BLUE) * 0.0;
+      fLevel += (float)digitalRead(PIN_GREEN) * 25.0;
+      fLevel += (float)digitalRead(PIN_YELLOW) * 50.0;
+      fLevel += (float)digitalRead(PIN_RED) * 75.0;
+
+      _BlackWater.setLevel(fLevel);
+
+      _lLastStartTime = millis();
+      _lLastBlackWaterTime = millis();
+      _bOverride = false;
+    }
+  }
+}
+
+//******************************************************************
 
 void loop(void)
 {
   // * **********************************************
   // * Samla in data
   // * **********************************************
-  //Hantera Temperaturer
-  handleFluidLevelData();
+  //Hantera Färskvatten
+  handleFreshWaterLevelData();
+
+  //Hantera toavatten
+  handleBlackWaterLevelData();
 
   // * **********************************************
   // * Lyssna på NMEA2000
