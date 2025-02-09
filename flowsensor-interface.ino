@@ -1,33 +1,14 @@
+
+
+//#define DEBUG_SERIAL_ENABLE
+
 #include <Arduino.h>
+#include <CaseumSerialConfig.h>
 #include <NMEA2000_CAN.h>
 #include <N2kMessages.h>
 #include <DiginauticN2k.h>
 #include <DiginauticFluid.h>
 #include <EEPROM.h>
-
-/** 
- * Define DEBUG_SERIAL_ENABLE to enable debug serial. 
- * Comment it to disable debug serial. 
- */
-//#define DEBUG_SERIAL_ENABLE
-
-/**
- * Define dbSerial for the output of debug messages. 
- */
-#define dbSerial Serial
-
-#ifdef DEBUG_SERIAL_ENABLE
-#define dbSerialPrint(a)    dbSerial.print(a)
-#define dbSerialPrintln(a)  dbSerial.println(a)
-#define dbSerialBegin(a)    dbSerial.begin(a)
-#else
-#define dbSerialPrint(a)    do{}while(0)
-#define dbSerialPrintln(a)  do{}while(0)
-#define dbSerialBegin(a)    do{}while(0)
-#endif
-
-
-
 
 
 //Definitions
@@ -159,16 +140,16 @@ void setup(void)
   _Flow.setCapacity(TANKCAPACITY);
 
   //Läs in aktuell tanknivå
-  float _fTemp;
-  EEPROM.get(FLOW_EEPROM_ADR, _fTemp);
-  if (_fTemp <= 0 || isnan(_fTemp))
+  double _dTemp;
+  EEPROM.get(FLOW_EEPROM_ADR, _dTemp);
+  if (_dTemp <= 0 || isnan(_dTemp))
   {
     _Flow.setLevelL(TANKCAPACITY);
     EEPROM.put(FLOW_EEPROM_ADR,TANKCAPACITY);
   }
   else
   {
-    _Flow.setLevelL(_fTemp);
+    _Flow.setLevelL(_dTemp);
   }
 
   // Reserve enough buffer for sending all messages. This does not work on small memory devices like Uno or Mega
@@ -232,7 +213,7 @@ void SendN2kFluidLevelData(void)
   if (IsTimeToUpdate(FluidLevelDataUpdated))
   {
     SetNextUpdate(FluidLevelDataUpdated, FluidLevelUpdatePeriod);
-    SetN2kFluidLevel(N2kMsg, "FRESH_WATER", N2kft_Water, _Flow.getLevel(), _Flow.getCapacity());
+    SetN2kFluidLevel(N2kMsg, 0, N2kft_Water, _Flow.getLevel(), _Flow.getCapacity());
     NMEA2000.SendMsg(N2kMsg);
   }
 }
@@ -262,8 +243,6 @@ void handleFluidLevelData(void)
   {
     if (_lCounter != 0)
     {
-      dbSerialPrint("Flöde: ");
-      dbSerialPrintln(String(_lCounter / FLOW_FACTOR,2));
       noInterrupts();
       _Flow.addCount(_lCounter);
       _lCounter = 0;
