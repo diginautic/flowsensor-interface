@@ -218,8 +218,8 @@ void setup(void)
   NMEA2000.SetProductInformation("00000008",                         // Manufacturer's Model serial code
                                  108,                                // Manufacturer's product code
                                  "Diginautic Fluid Level Interface", // Manufacturer's Model ID
-                                 "1.1",                            // Manufacturer's Software version code
-                                 "1.1",                            // Manufacturer's Model version
+                                 "2.0",                            // Manufacturer's Software version code
+                                 "2.0",                            // Manufacturer's Model version
                                  1                                   //LEN
   );
   // Set device information
