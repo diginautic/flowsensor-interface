@@ -9,22 +9,17 @@
 #include <DiginauticN2k.h>
 #include <DiginauticFluid.h>
 #include <EEPROM.h>
-//#include <DiginauticPGN127502.h>
-
-
-
-
 
 //Definitions
 #define N2K_SOURCE 108
 
 //DeviceBankInstance
 #define FLUIDBANKINSTANCE 2
-#define NUM_SWITCHES 2
+#define NUM_SWITCHES 3
 
 
 #define FRESH_WATER_LEVEL_SAMPLING_PERIOD 1000
-#define BLACK_WATER_LEVEL_SAMPLING_PERIOD 600000
+#define BLACK_WATER_LEVEL_SAMPLING_PERIOD 300000
 #define BLACK_WATER_LEVEL_WAIT_PERIOD 20000
 #define BLACK_WATER_LEVEL_PRESS_PERIOD 500
 
@@ -53,19 +48,17 @@ NMEA2k_FluidLevel _FluidLevel;
 #define WASTE_TANKCAPACITY 56.0
 
 //Fresh water tank instance
-unsigned char FreshWaterInstance = "0";
+unsigned char FreshWaterInstance = 0;
 
 //Waste water tank instance
-unsigned char BlackWaterInstance = "1";
+unsigned char BlackWaterInstance = 1;
 
 //Timingparametrar
 unsigned long _lLastFlowTime = 0;
 unsigned long _lLastBlackWaterTime = 0;
 unsigned long _lLastStartTime = 0;
 unsigned long _lLastButtonPressTime = 0;
-bool _bStarted = false;
 bool _bPressed = false;
-bool _bOverride = false;
 
 //Färskvatten
 Fluid _Flow(FLOW_FACTOR, N2kft_Water, FreshWaterInstance);
@@ -73,6 +66,7 @@ volatile unsigned long _lCounter = 0;
 
 //Svartvatten
 Fluid _BlackWater(0, N2kft_BlackWater, BlackWaterInstance);
+#define BTN_CHECK_TOILET 3
 
 //Switches
 tN2kBinaryStatus _Switches = 0;
@@ -99,13 +93,29 @@ void BankControl(const tN2kMsg &N2kMsg)
             case 1:
               _Flow.setLevelL(FRESH_TANKCAPACITY);
               EEPROM.put(FLOW_EEPROM_ADR,FRESH_TANKCAPACITY);
-              handleTankLevel(PIN);
+              handleTankLevel(PIN, N2kOnOff_Off);
             break;
 
             case 2:
               _Flow.setLevelL(_Flow.getLevelL() + ADDVOLUME);
               EEPROM.put(FLOW_EEPROM_ADR,_Flow.getLevelL());
-              handleTankLevel(PIN);
+              handleTankLevel(PIN, N2kOnOff_Off);
+            break;
+
+            case 3:
+              if (!_bPressed)
+              {
+                dbSerialPrintln("Wohoo ingen har tryckt!");
+
+                _bPressed = true;
+                //handleTankLevel(PIN, ItemStatus);
+                handleTankLevel(PIN, N2kOnOff_On);
+                handleBlackWaterLevelData();
+              }
+              else
+              {
+                dbSerialPrintln("Redan tryckt");
+              }
             break;
           }
           break;
@@ -120,9 +130,9 @@ void BankControl(const tN2kMsg &N2kMsg)
   }
 }
 
-void handleTankLevel(int PIN)
+void handleTankLevel(int PIN, tN2kOnOff PinStatus)
 {
-  N2kSetStatusBinaryOnStatus(_Switches, N2kOnOff_Off, PIN);
+  N2kSetStatusBinaryOnStatus(_Switches, PinStatus, PIN);
   SendN2kBinaryStatus(true);
 }
 //************************************************************
@@ -169,27 +179,33 @@ void setup(void)
   //Pull up pin
   pinMode(PIN_FLOWSENSOR, INPUT_PULLUP);
   pinMode(PIN_BUTTON, OUTPUT);
-  pinMode(PIN_BLUE, INPUT);
-  pinMode(PIN_GREEN, INPUT);
-  pinMode(PIN_YELLOW, INPUT);
-  pinMode(PIN_RED, INPUT);
+  pinMode(PIN_BLUE, INPUT_PULLUP);
+  pinMode(PIN_GREEN, INPUT_PULLUP);
+  pinMode(PIN_YELLOW, INPUT_PULLUP);
+  pinMode(PIN_RED, INPUT_PULLUP);
 
   //Initiera vattentanken
   _Flow.setCapacity(FRESH_TANKCAPACITY);
 
   //Initiera toatanken
   _BlackWater.setCapacity(WASTE_TANKCAPACITY);
-  _bOverride = true;
-  handleBlackWaterLevelData();
 
+  //Starta första mätning av toatanken
+  //Mätningen hantreras av första anropet i loop()
+  _bPressed = true;
 
   //Läs in aktuell tanknivå
   double _dTemp;
   EEPROM.get(FLOW_EEPROM_ADR, _dTemp);
   if (_dTemp <= 0 || isnan(_dTemp))
   {
-    _Flow.setLevelL(FRESH_TANKCAPACITY);
-    EEPROM.put(FLOW_EEPROM_ADR,FRESH_TANKCAPACITY);
+    _Flow.setLevelL(0);
+    EEPROM.put(FLOW_EEPROM_ADR,0);
+    //Varför satte jag den till full tank om jag inte kan tolka
+    //nivån eller om det inte är ett numerikst värde???
+    //Sätter den till noll istället
+    //_Flow.setLevelL(FRESH_TANKCAPACITY);
+    //EEPROM.put(FLOW_EEPROM_ADR,FRESH_TANKCAPACITY);
   }
   else
   {
@@ -202,8 +218,8 @@ void setup(void)
   NMEA2000.SetProductInformation("00000008",                         // Manufacturer's Model serial code
                                  108,                                // Manufacturer's product code
                                  "Diginautic Fluid Level Interface", // Manufacturer's Model ID
-                                 "1.0.1",                            // Manufacturer's Software version code
-                                 "1.0.1",                            // Manufacturer's Model version
+                                 "1.1",                            // Manufacturer's Software version code
+                                 "1.1",                            // Manufacturer's Model version
                                  1                                   //LEN
   );
   // Set device information
@@ -212,11 +228,6 @@ void setup(void)
                                 75,    // Device class=Inter/Intranetwork Device. See codes on  http://www.nmea.org/Assets/20120726%20nmea%202000%20class%20&%20function%20codes%20v%202.00.pdf
                                 2046   // Just choosen free from code list on http://www.nmea.org/Assets/20121020%20nmea%202000%20registration%20list.pdf
   );
-  // Uncomment 3 rows below to see, what device will send to bus
-  // NMEA2000.SetForwardStream(&dbSerial);  // PC output on due programming port
-  // NMEA2000.SetForwardType(tNMEA2000::fwdt_Text); // Show in clear text. Leave uncommented for default Actisense format.
-  // NMEA2000.SetForwardOwnMessages();
-
   // If you also want to see all traffic on the bus use N2km_ListenAndNode instead of N2km_NodeOnly below
   NMEA2000.SetMode(tNMEA2000::N2km_NodeOnly, N2K_SOURCE);
   NMEA2000.EnableForward(false); // Disable all msg forwarding to USB (=Serial)
@@ -256,18 +267,14 @@ void SendN2kFluidLevelData(void)
 
   if (IsTimeToUpdate(FluidLevelDataUpdated))
   {
-    //Fresh water
     SetNextUpdate(FluidLevelDataUpdated, FluidLevelUpdatePeriod);
-<<<<<<< HEAD
-    SetN2kFluidLevel(N2kMsg, 0, N2kft_Water, _Flow.getLevel(), _Flow.getCapacity());
-=======
+
+    //Fresh water
     SetN2kFluidLevel(N2kMsg, _Flow.getInstance(), _Flow.getFluidType(), _Flow.getLevel(), _Flow.getCapacity());
     NMEA2000.SendMsg(N2kMsg);
 
     //Black water
-    SetNextUpdate(FluidLevelDataUpdated, FluidLevelUpdatePeriod);
     SetN2kFluidLevel(N2kMsg, _BlackWater.getInstance(), _BlackWater.getFluidType(), _BlackWater.getLevel(), _BlackWater.getCapacity());
->>>>>>> 04fc90ba6b4d14ae83254847f9e6b806c56004ac
     NMEA2000.SendMsg(N2kMsg);
   }
 }
@@ -295,12 +302,6 @@ void handleFreshWaterLevelData(void)
   {
     if (_lCounter != 0)
     {
-<<<<<<< HEAD
-=======
-      dbSerialPrint("Flöde: ");
-      dbSerialPrintln(String(_lCounter / FLOW_FACTOR,2));
-
->>>>>>> 04fc90ba6b4d14ae83254847f9e6b806c56004ac
       noInterrupts();
       _Flow.addCount(_lCounter);
       _lCounter = 0;
@@ -314,51 +315,90 @@ void handleFreshWaterLevelData(void)
 //******************************************************************
 void handleBlackWaterLevelData(void)
 {
-  if (millis() - _lLastBlackWaterTime >= BLACK_WATER_LEVEL_SAMPLING_PERIOD || _bOverride)
+  if (millis() - _lLastBlackWaterTime >= BLACK_WATER_LEVEL_SAMPLING_PERIOD || _bPressed)
   {
-    dbSerialPrint("Toatanken");
+    static int _iTask = 1;
 
-    if (!_bStarted)
+    if (_iTask == 1) //Initiera mätningen
     {
-      dbSerialPrint("Starta toamätningen");
+      dbSerialPrintln("Task = 1");
 
-      //Flagga mätningen som aktiv
-      _bStarted = true;
+      //Tänd knappen på NMEA2000
+      handleTankLevel(BTN_CHECK_TOILET, N2kOnOff_On);
+
 
       //Tryck in knappen och starta timern
       digitalWrite(PIN_BUTTON, HIGH);
       _lLastButtonPressTime = millis();
-      _bPressed = true;
 
       _lLastStartTime = millis();
+
+      _iTask = 2;
     }
     //Om knappen är tryckt och tiden för ett tryck har gått ut så släpp knappen
-    else if (_bPressed && millis() - _lLastButtonPressTime >= BLACK_WATER_LEVEL_PRESS_PERIOD)
+    else if (_iTask == 2 && millis() - _lLastButtonPressTime >= BLACK_WATER_LEVEL_PRESS_PERIOD)
     {
+      dbSerialPrintln("Task = 2");
       digitalWrite(PIN_BUTTON, LOW);
       _lLastButtonPressTime = 0;
-      _bPressed = false;
 
+      _iTask = 3;
     }
-    //Om väntetiden för lamporna p ådisplayen gått ut är det dags att läsa av lamporna och stoppa kontrollen
-    else if (millis() - _lLastStartTime >= BLACK_WATER_LEVEL_WAIT_PERIOD)
+    //Om väntetiden för lamporna på displayen gått ut är det dags att läsa av lamporna och stoppa kontrollen
+    else if (_iTask == 3 && millis() - _lLastStartTime >= BLACK_WATER_LEVEL_WAIT_PERIOD)
     {
-      dbSerialPrint("Läs av och lagra toamätningen");
+      dbSerialPrintln("Task = 3");
 
-      _bStarted = false;
+      double dLevel = 0;
+      int iBlue = !digitalRead(PIN_BLUE);
+      int iGreen = !digitalRead(PIN_GREEN);
+      int iYellow = !digitalRead(PIN_YELLOW);
+      int iRed = !digitalRead(PIN_RED);
 
-      float fLevel = 0;
+      //Om flera LED lyser signalerar det ett fel på en eller flera givare
+      if ((iBlue + iGreen + iYellow + iRed) == 1)
+      {
+        //dbSerialPrintln("Bara en lampa lyser");
 
-      fLevel += (float)digitalRead(PIN_BLUE) * 0.0;
-      fLevel += (float)digitalRead(PIN_GREEN) * 25.0;
-      fLevel += (float)digitalRead(PIN_YELLOW) * 50.0;
-      fLevel += (float)digitalRead(PIN_RED) * 75.0;
+        dLevel += (double)iBlue * 0.0;
+        dLevel += (double)iGreen * 25.0;
+        dLevel += (double)iYellow * 50.0;
+        dLevel += (double)iRed * 75.0;
+      }
+      else
+      {
+        //dbSerialPrintln("Alla lampor eller ingen lampa lyser");
+        dLevel = -99.0;
+      }
 
-      _BlackWater.setLevel(fLevel);
+      //dbSerialPrintln("Nivån satt till: " + (String)dLevel);
 
-      _lLastStartTime = millis();
+      _BlackWater.setLevel(dLevel);
+
+      //_lLastStartTime = millis();
+      //_lLastBlackWaterTime = millis();
+      //Släck knappen
+      handleTankLevel(BTN_CHECK_TOILET, N2kOnOff_Off);
+
+      //Sätt utgången till optokopplaren hög så att +12V
+      //på gobius dras låg och stänger av sig
+      //dbSerialPrintln("Drar optokopplaren låg + _dPressed=true");
+      digitalWrite(PIN_BUTTON, HIGH);
+      _lLastButtonPressTime = millis();
+
+      _iTask = 4;
+    }
+    else if (_iTask == 4 && millis() - _lLastButtonPressTime >= BLACK_WATER_LEVEL_PRESS_PERIOD)
+    {
+      dbSerialPrintln("Task = 4");
+      dbSerialPrintln("------------------------------------");
+
+      _bPressed = false;
+      digitalWrite(PIN_BUTTON, LOW);
+      _lLastButtonPressTime = 0;
+      
       _lLastBlackWaterTime = millis();
-      _bOverride = false;
+      _iTask = 1;
     }
   }
 }
